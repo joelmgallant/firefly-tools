@@ -59,5 +59,6 @@ These rules are intended to ensure clear, consistent, and accurate tracking of f
 This project interfaces with a local installation of Firefly III.
 
 *   **API Documentation:** The official API documentation can be found at https://api-docs.firefly-iii.org/
+*   **Search API Documentation:** https://docs.firefly-iii.org/references/firefly-iii/search/
 *   Refer to this documentation for any questions regarding Firefly III API endpoints, data structures, or authentication.
 *   The `money.py` script queries Firefly III for transactions tagged with "payback" and outputs them to a CSV file named `payback.csv`.
