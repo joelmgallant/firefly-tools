@@ -6,14 +6,17 @@ Available actions:
 - search: Search transactions by amount.
 - category: Search transactions by category name.
 - list-rules: List all automation rules.
-- untagged: Query uncategorized transactions from past 3 months, suggest categories, export to CSV.
+- untagged: Query uncategorized transactions, suggest categories, export to CSV.
+  Accepts --date parameter (default: 2025-03-01)
   Exports two files:
   - data/untagged.csv: Full transaction details with suggested categories
   - data/untagged_updates.csv: Transaction IDs and categories for bulk updates
   Use apply_categories.py to apply the suggested categories to Firefly III.
-- assign-budget: Assign all unbudgeted withdrawal transactions from the past year to appropriate budgets.
+- assign-budget: Assign all unbudgeted withdrawal transactions to appropriate budgets.
+  Accepts --date parameter (default: 2025-03-01)
   Categories 'vix-events' → Vix-Events, 'taweel' → Taweel, others → Spending.
 - refine-budgets: Refine budget assignments by moving transactions from 'Spending' to specialized budgets.
+  Accepts --date parameter (default: 2025-03-01)
   Checks categories and moves: vix-events → Vix-Events, taweel → Taweel, trip/travel → Trips.
 """
 
@@ -373,23 +376,23 @@ def suggest_category(description):
     # Default to uncategorized
     return '(Uncategorized)'
 
-def action_untagged():
+def action_untagged(date_after='2025-03-01'):
     """
     Query uncategorized transactions and suggest categories.
     Uses pagination to fetch all results.
-    """
-    # Query all uncategorized transactions since 2022
-    date_str = '2022-01-01'
 
-    query_string = f"has_no_category:true date_after:{date_str}"
-    print(f"Querying uncategorized transactions since {date_str}...")
+    Args:
+        date_after: Only fetch transactions after this date (YYYY-MM-DD format)
+    """
+    query_string = f"has_no_category:true date_after:{date_after}"
+    print(f"Querying uncategorized transactions since {date_after}...")
     print(f" - Query: '{query_string}'")
     print(f" - Fetching page 1...")
 
     transactions = _fetch_transactions(query_string, limit=500, paginate=True)
 
     if not transactions:
-        print(f"No uncategorized transactions found since {date_str}.")
+        print(f"No uncategorized transactions found since {date_after}.")
         return
 
     print(f"\n - Found {len(transactions)} total uncategorized transactions\n")
@@ -514,17 +517,15 @@ def action_list_rules():
         print(f"Error connecting to Firefly III API: {e}")
         exit(1)
 
-def action_assign_budget():
+def action_assign_budget(date_after='2025-03-01'):
     """
-    Assign all unbudgeted transactions from the past year to the 'Spending' budget.
+    Assign all unbudgeted transactions to appropriate budgets.
+
+    Args:
+        date_after: Only fetch transactions after this date (YYYY-MM-DD format)
     """
-    from datetime import datetime, timedelta
-
-    # Calculate date one year ago
-    one_year_ago = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
-
-    query_string = f"has_no_budget:true date_after:{one_year_ago}"
-    print(f"Querying unbudgeted transactions since {one_year_ago}...")
+    query_string = f"has_no_budget:true date_after:{date_after}"
+    print(f"Querying unbudgeted transactions since {date_after}...")
     print(f" - Query: '{query_string}'")
 
     # Fetch all unbudgeted transactions
@@ -632,18 +633,16 @@ def action_assign_budget():
         print(f"Error connecting to Firefly III API: {e}")
         exit(1)
 
-def action_refine_budgets():
+def action_refine_budgets(date_after='2025-03-01'):
     """
     Refine budget assignments for transactions in 'Spending' budget.
     Checks if transactions should be in Taweel, Vix-Events, or Trips budgets based on category.
+
+    Args:
+        date_after: Only fetch transactions after this date (YYYY-MM-DD format)
     """
-    from datetime import datetime, timedelta
-
-    # Calculate date one year ago
-    one_year_ago = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
-
-    query_string = f"budget:Spending date_after:{one_year_ago}"
-    print(f"Querying 'Spending' budget transactions since {one_year_ago}...")
+    query_string = f"budget:Spending date_after:{date_after}"
+    print(f"Querying 'Spending' budget transactions since {date_after}...")
     print(f" - Query: '{query_string}'")
 
     # Fetch all Spending budget transactions
@@ -811,13 +810,31 @@ def main():
     list_rules_parser = subparsers.add_parser("list-rules", help="List all automation rules.")
 
     # Sub-parser for the "untagged" action
-    untagged_parser = subparsers.add_parser("untagged", help="Query uncategorized transactions from past 3 months and suggest categories.")
+    untagged_parser = subparsers.add_parser("untagged", help="Query uncategorized transactions and suggest categories.")
+    untagged_parser.add_argument(
+        "--date",
+        type=str,
+        default="2025-03-01",
+        help="Only fetch transactions after this date (YYYY-MM-DD). Default: 2025-03-01"
+    )
 
     # Sub-parser for the "assign-budget" action
-    assign_budget_parser = subparsers.add_parser("assign-budget", help="Assign all unbudgeted transactions from the past year to the 'Spending' budget.")
+    assign_budget_parser = subparsers.add_parser("assign-budget", help="Assign all unbudgeted transactions to appropriate budgets.")
+    assign_budget_parser.add_argument(
+        "--date",
+        type=str,
+        default="2025-03-01",
+        help="Only fetch transactions after this date (YYYY-MM-DD). Default: 2025-03-01"
+    )
 
     # Sub-parser for the "refine-budgets" action
-    refine_budgets_parser = subparsers.add_parser("refine-budgets", help="Refine budget assignments by moving transactions from 'Spending' to Taweel, Vix-Events, or Trips based on category.")
+    refine_budgets_parser = subparsers.add_parser("refine-budgets", help="Refine budget assignments by moving transactions from 'Spending' to specialized budgets.")
+    refine_budgets_parser.add_argument(
+        "--date",
+        type=str,
+        default="2025-03-01",
+        help="Only fetch transactions after this date (YYYY-MM-DD). Default: 2025-03-01"
+    )
 
     args = parser.parse_args()
 
@@ -831,11 +848,11 @@ def main():
     elif args.action == "list-rules":
         action_list_rules()
     elif args.action == "untagged":
-        action_untagged()
+        action_untagged(date_after=args.date)
     elif args.action == "assign-budget":
-        action_assign_budget()
+        action_assign_budget(date_after=args.date)
     elif args.action == "refine-budgets":
-        action_refine_budgets()
+        action_refine_budgets(date_after=args.date)
     # No need for an else here, as `required=True` in `add_subparsers` handles missing/invalid actions.
 
 if __name__ == "__main__":
