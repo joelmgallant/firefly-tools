@@ -11,6 +11,7 @@ Available actions:
   - data/untagged.csv: Full transaction details with suggested categories
   - data/untagged_updates.csv: Transaction IDs and categories for bulk updates
   Use apply_categories.py to apply the suggested categories to Firefly III.
+- assign-budget: Assign all unbudgeted withdrawal transactions from the past year to 'Spending' budget.
 """
 
 import json
@@ -476,6 +477,124 @@ def action_list_rules():
         print(f"Error connecting to Firefly III API: {e}")
         exit(1)
 
+def action_assign_budget():
+    """
+    Assign all unbudgeted transactions from the past year to the 'Spending' budget.
+    """
+    from datetime import datetime, timedelta
+
+    # Calculate date one year ago
+    one_year_ago = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+
+    query_string = f"has_no_budget:true date_after:{one_year_ago}"
+    print(f"Querying unbudgeted transactions since {one_year_ago}...")
+    print(f" - Query: '{query_string}'")
+
+    # Fetch all unbudgeted transactions
+    url = f"{API_BASE_URL}/search/transactions"
+    headers = get_headers()
+    params = {"query": query_string, "limit": "500"}
+
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        response.raise_for_status()
+
+        data = response.json()
+        records = data.get("data", [])
+
+        if not records:
+            print("No unbudgeted transactions found.")
+            return
+
+        print(f" - Found {len(records)} unbudgeted transactions\n")
+
+        # Extract transaction journal IDs
+        transaction_ids = []
+        transaction_details = []
+
+        for record in records:
+            if "attributes" in record and "transactions" in record["attributes"]:
+                tx_list = record["attributes"]["transactions"]
+                if tx_list:
+                    tx = tx_list[0]
+                    # Only process withdrawals (expenses), skip deposits/transfers
+                    if tx.get('type') == 'withdrawal':
+                        transaction_ids.append(record["id"])
+                        transaction_details.append({
+                            'id': record["id"],
+                            'date': tx.get('date'),
+                            'description': tx.get('description'),
+                            'amount': tx.get('amount'),
+                            'category': tx.get('category_name', '')
+                        })
+
+        if not transaction_ids:
+            print("No withdrawal transactions found to budget.")
+            return
+
+        print(f"Found {len(transaction_ids)} withdrawal transactions to assign to 'Spending' budget")
+        print(f"\nAssigning budget to {len(transaction_ids)} transactions...")
+
+        # Update each transaction with appropriate budget based on category
+        success_count = 0
+        error_count = 0
+        budget_counts = {}
+
+        for i, tx_id in enumerate(transaction_ids, 1):
+            tx_info = transaction_details[i-1]
+            category = (tx_info.get('category') or '').lower()
+
+            # Determine budget based on category
+            if 'vix-events' in category:
+                budget_name = "Vix-Events"
+            elif 'taweel' in category:
+                budget_name = "Taweel"
+            else:
+                budget_name = "Spending"
+
+            # Track budget assignments
+            budget_counts[budget_name] = budget_counts.get(budget_name, 0) + 1
+
+            try:
+                update_response = requests.put(
+                    f"{API_BASE_URL}/transactions/{tx_id}",
+                    headers=headers,
+                    json={
+                        "transactions": [{
+                            "budget_name": budget_name
+                        }]
+                    }
+                )
+
+                if update_response.status_code in [200, 204]:
+                    success_count += 1
+                    print(f"[{i}/{len(transaction_ids)}] ✓ {budget_name:12} | {tx_info['description'][:40]}")
+                else:
+                    error_count += 1
+                    print(f"[{i}/{len(transaction_ids)}] ✗ Error {update_response.status_code} | {tx_info['description'][:40]}")
+
+                # Rate limiting - small delay between requests
+                import time
+                time.sleep(0.1)
+
+            except requests.exceptions.RequestException as e:
+                error_count += 1
+                print(f"[{i}/{len(transaction_ids)}] ✗ Error: {tx_info['description'][:40]} - {e}")
+
+        print("\n" + "=" * 80)
+        print("Summary:")
+        print(f"  ✓ Successfully updated: {success_count}")
+        if error_count > 0:
+            print(f"  ✗ Errors: {error_count}")
+        print("\nBudget assignments:")
+        for budget, count in sorted(budget_counts.items()):
+            print(f"  {budget}: {count} transaction(s)")
+        print("=" * 80)
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error connecting to Firefly III API: {e}")
+        exit(1)
+
 def main():
     """Parse arguments and execute the appropriate action"""
     parser = argparse.ArgumentParser(description="Firefly III Transaction Tool")
@@ -515,6 +634,9 @@ def main():
     # Sub-parser for the "untagged" action
     untagged_parser = subparsers.add_parser("untagged", help="Query uncategorized transactions from past 3 months and suggest categories.")
 
+    # Sub-parser for the "assign-budget" action
+    assign_budget_parser = subparsers.add_parser("assign-budget", help="Assign all unbudgeted transactions from the past year to the 'Spending' budget.")
+
     args = parser.parse_args()
 
     # Execute the selected action
@@ -528,6 +650,8 @@ def main():
         action_list_rules()
     elif args.action == "untagged":
         action_untagged()
+    elif args.action == "assign-budget":
+        action_assign_budget()
     # No need for an else here, as `required=True` in `add_subparsers` handles missing/invalid actions.
 
 if __name__ == "__main__":
