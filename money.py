@@ -49,43 +49,75 @@ def get_headers():
     }
 
 # Internal function to fetch transactions based on a generic query string
-def _fetch_transactions(query_string, limit=500):
-    """Fetch transactions based on a query string from Firefly III API."""
+def _fetch_transactions(query_string, limit=500, paginate=False):
+    """
+    Fetch transactions based on a query string from Firefly III API.
+
+    Args:
+        query_string: The search query
+        limit: Number of results per page (max 500)
+        paginate: If True, fetch all results across multiple pages. If False, only fetch first page.
+
+    Returns:
+        List of transaction dictionaries
+    """
     url = f"{API_BASE_URL}/search/transactions"
     headers = get_headers()
-    params = {"query": query_string, "limit": str(limit)}
-    
-    full_request_url = requests.Request('GET', url, params=params).prepare().url
-    print(f"Constructed API Request URL: {full_request_url}")
-    
-    try:
-        response = requests.get(url, headers=headers, params=params)
-        response.raise_for_status()  # Raise exception for 4XX/5XX responses
-        
-        data = response.json()
-        records = data.get("data", [])
-        
-        if not records:
-            print("API returned no records (empty 'data' array).")
-            print(f"Raw API response data: {json.dumps(data, indent=2)}") # Print raw data if no records
-            
-        transactions_details = []
-        
-        for record in records:
-            if "attributes" in record and "transactions" in record["attributes"]:
-                transaction_list = record["attributes"]["transactions"]
-                if transaction_list: 
-                    transactions_details.append(transaction_list[0])
+
+    all_transactions = []
+    page = 1
+    per_page = min(limit, 500)  # API max is 500
+
+    while True:
+        params = {"query": query_string, "limit": str(per_page), "page": str(page)}
+
+        if page == 1:
+            full_request_url = requests.Request('GET', url, params=params).prepare().url
+            print(f"Constructed API Request URL: {full_request_url}")
+
+        try:
+            response = requests.get(url, headers=headers, params=params)
+            response.raise_for_status()
+
+            data = response.json()
+            records = data.get("data", [])
+
+            if not records:
+                if page == 1:
+                    print("API returned no records (empty 'data' array).")
+                    print(f"Raw API response data: {json.dumps(data, indent=2)}")
+                break
+
+            # Extract transaction details
+            for record in records:
+                if "attributes" in record and "transactions" in record["attributes"]:
+                    transaction_list = record["attributes"]["transactions"]
+                    if transaction_list:
+                        all_transactions.append(transaction_list[0])
+                    else:
+                        print(f"Warning: Empty 'transactions' list for record ID: {record.get('id')}")
                 else:
-                    print(f"Warning: Empty 'transactions' list for record ID: {record.get('id')}")
-            else:
-                print(f"Warning: Missing 'attributes' or 'transactions' key for record ID: {record.get('id')}")
-        
-        return transactions_details
-    except requests.exceptions.RequestException as e:
-        print(f"Error connecting to Firefly III API: {e}")
-        print(f"URL: {url}")
-        exit(1)
+                    print(f"Warning: Missing 'attributes' or 'transactions' key for record ID: {record.get('id')}")
+
+            # Check if we should continue paginating
+            if not paginate:
+                break  # Only fetch first page
+
+            if len(records) < per_page:
+                break  # Last page (fewer results than limit)
+
+            page += 1
+            print(f"  Fetching page {page}...")
+
+        except requests.exceptions.RequestException as e:
+            print(f"Error connecting to Firefly III API: {e}")
+            print(f"URL: {url}")
+            exit(1)
+
+    if paginate and page > 1:
+        print(f"  Total pages fetched: {page}")
+
+    return all_transactions
 
 # Modified fetch_transactions_by_tag to use the internal _fetch_transactions
 def fetch_transactions_by_tag(tag, limit=500):
@@ -343,22 +375,24 @@ def suggest_category(description):
 
 def action_untagged():
     """
-    Query uncategorized transactions from 2025 and suggest categories.
+    Query uncategorized transactions and suggest categories.
+    Uses pagination to fetch all results.
     """
-    # Query all of 2025
-    date_str = '2025-01-01'
+    # Query all uncategorized transactions since 2022
+    date_str = '2022-01-01'
 
     query_string = f"has_no_category:true date_after:{date_str}"
     print(f"Querying uncategorized transactions since {date_str}...")
     print(f" - Query: '{query_string}'")
+    print(f" - Fetching page 1...")
 
-    transactions = _fetch_transactions(query_string, limit=500)
+    transactions = _fetch_transactions(query_string, limit=500, paginate=True)
 
     if not transactions:
-        print("No uncategorized transactions found in 2025.")
+        print(f"No uncategorized transactions found since {date_str}.")
         return
 
-    print(f" - Found {len(transactions)} uncategorized transactions\n")
+    print(f"\n - Found {len(transactions)} total uncategorized transactions\n")
 
     # Add suggested categories
     for tx in transactions:
