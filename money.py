@@ -3,9 +3,9 @@ Interacts with Firefly III API to perform various transaction operations.
 
 Available actions:
 - payback: Queries transactions tagged with "payback" and outputs them to a CSV file.
-- search: Search transactions by amount and optionally by date.
-
-Default action: payback
+- search: Search transactions by amount.
+- category: Search transactions by category name.
+- list-rules: List all automation rules.
 """
 
 import json
@@ -163,6 +163,99 @@ def action_search_transactions(amount):
     else:
         print("No transactions found matching your criteria.")
 
+def action_category(category_name):
+    """
+    Search for transactions by category name.
+    Outputs results to console as a table.
+    """
+    query_string = f"category:{category_name}"
+
+    print(f"Searching Firefly III for transactions with category '{category_name}'...")
+    print(f" - Query: '{query_string}'")
+
+    transactions = _fetch_transactions(query_string)
+
+    if transactions:
+        print(f"Found {len(transactions)} transaction(s):")
+
+        columns_to_display = [
+            "date",
+            "amount",
+            "description",
+            "category_name",
+            "source_name",
+            "currency_code",
+            "tags",
+        ]
+
+        display_data = []
+        for t in transactions:
+            display_data.append({col: t.get(col) for col in columns_to_display})
+
+        summary_df = pd.DataFrame(display_data)
+        summary_df = summary_df[columns_to_display]
+
+        print(summary_df.to_string(index=False))
+    else:
+        print("No transactions found matching your criteria.")
+
+def action_list_rules():
+    """
+    List all automation rules from Firefly III.
+    Outputs results to console as a table.
+    """
+    url = f"{API_BASE_URL}/rules"
+    headers = get_headers()
+
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+
+        data = response.json()
+        rules = data.get("data", [])
+
+        if not rules:
+            print("No automation rules found.")
+            return
+
+        print(f"Found {len(rules)} automation rule(s):\n")
+
+        rule_data = []
+        for rule in rules:
+            attrs = rule.get("attributes", {})
+
+            # Build trigger summary
+            triggers = attrs.get("triggers", [])
+            trigger_summary = ", ".join([
+                f"{t['type']}={t['value']}" for t in triggers[:2]
+            ])
+            if len(triggers) > 2:
+                trigger_summary += f" (+{len(triggers)-2} more)"
+
+            # Build action summary
+            actions = attrs.get("actions", [])
+            action_summary = ", ".join([
+                f"{a['type']}={a['value']}" for a in actions[:2]
+            ])
+            if len(actions) > 2:
+                action_summary += f" (+{len(actions)-2} more)"
+
+            rule_data.append({
+                "id": rule.get("id"),
+                "active": "✓" if attrs.get("active") else "✗",
+                "title": attrs.get("title"),
+                "group": attrs.get("rule_group_title"),
+                "triggers": trigger_summary,
+                "actions": action_summary,
+            })
+
+        df = pd.DataFrame(rule_data)
+        print(df.to_string(index=False))
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error connecting to Firefly III API: {e}")
+        exit(1)
+
 def main():
     """Parse arguments and execute the appropriate action"""
     parser = argparse.ArgumentParser(description="Firefly III Transaction Tool")
@@ -187,14 +280,29 @@ def main():
         help="The exact amount to search for (e.g., 123.45 or -50.00)."
     )
     # Removed --date and --currency arguments for this basic version
-    
+
+    # Sub-parser for the "category" action
+    category_parser = subparsers.add_parser("category", help="Search transactions by category name.")
+    category_parser.add_argument(
+        "category_name",
+        type=str,
+        help="The category name to search for (e.g., vix-events)."
+    )
+
+    # Sub-parser for the "list-rules" action
+    list_rules_parser = subparsers.add_parser("list-rules", help="List all automation rules.")
+
     args = parser.parse_args()
     
     # Execute the selected action
     if args.action == "payback":
         action_payback()
     elif args.action == "search":
-        action_search_transactions(args.amount) # Pass only amount
+        action_search_transactions(args.amount)
+    elif args.action == "category":
+        action_category(args.category_name)
+    elif args.action == "list-rules":
+        action_list_rules()
     # No need for an else here, as `required=True` in `add_subparsers` handles missing/invalid actions.
 
 if __name__ == "__main__":
