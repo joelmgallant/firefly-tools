@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(source:*)",
+      "Bash(python:*)",
+      "mcp__fetch__fetch",
+      "Read(///**)",
+      "Bash(awk:*)",
+      "Bash(cat:*)"
+    ],
+    "deny": [],
+    "ask": [],
+    "additionalDirectories": [
+      "/Users/joelmgallant/Library/Mobile Documents/com~apple~Numbers/Documents/"
+    ]
+  }
+}

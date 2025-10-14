@@ -231,53 +231,107 @@ def suggest_category(description):
     desc_upper = description.upper()
 
     # Mapping of keywords to categories
+    # Order matters - more specific patterns should come before generic ones
     category_patterns = {
+        # Special cases - check first
+        'Returns': ['ITEM RETURNED NSF', 'NSF', 'CREDIT ADJUSTMENT'],
+        'Income': ['CANADA'],  # Government deposits (tax refunds, carbon rebates)
         'Trip-Iceland': ['ISK @'],
+
+        # Banking & Transfers
+        'Transfer': ['TRANSFER', 'TFR', 'WWW TRF DDA', 'PAYMENT - THANK YOU', 'PAIEMENT - MERCI',
+                    'ROYAL BANK OF CANADA', 'PYMT', 'CURRENCY CLOUD', 'WWW CASH ADV',
+                    'AVANCE DE FONDS', '@ $'],  # Generic payment patterns like "1 @ $45.00"
+        'Banking Fee': ['MONTHLY FEE', 'ANNUAL FEE', 'BANK FEE', 'RBC - SERVICE CHARGE',
+                       'SERVICE CHARGE', 'WWW OD HDLG FEE', 'OD HDLG', 'CASH - SERVICE CHARGE',
+                       'RBC ROYAL BANK'],
         'Debt': ['LOAN PMT', 'BILL PMT', 'WWW PMT', 'AFFIRM'],
-        'Transfer': ['TRANSFER', 'TFR', 'WWW TRF DDA', 'PAYMENT - THANK YOU', 'PAIEMENT - MERCI', 'ROYAL BANK OF CANADA'],
-        'Banking Fee': ['MONTHLY FEE', 'ANNUAL FEE', 'BANK FEE'],
+
+        # Shopping
+        'Electronics': ['FLOLAB', 'BLUEAIR'],  # Screen protectors, air purifiers
+        'Clothing': ['SIMONS', 'H&M', 'ZARA', 'GAP', 'NIKE', 'ADIDAS', 'WORK AUTHORITY',
+                    'VIVOBAREFOOT', 'LULULEMON', 'NOREASTER APPAREL', 'HEAT WAVE VISUAL',
+                    'SHADES WORLD', 'CHERRYKITTEN', 'IYKYK'],
+        'Jewelry': ['BISUTERIA', 'VENUS ENVY'],
+        'Amazon': ['AMZN', 'AMAZON'],
+        'Household': ['CANADIAN TIRE', 'IKEA', 'STAPLES', 'LONG & MCQUADE', 'FREAK LUNCHBOX',
+                     'HOME DEPOT', 'KENT', 'TIDEWATER MERCHAN', 'MOUNTAIN EQUIPMENT COMPAN',
+                     'MEC', "CLEVE'S SPORTING GOODS", 'WAL-MART', 'WALMART'],
+
+        # Food & Drink
         'Alcohol': ['NSLC', 'GARRISON BREWING', 'GOOD ROBOT', 'PROPELLER BREWING', 'BULWARK CIDER',
                    '2 CROWS BREWING', 'BISHOPS CELLAR', 'OAK TREE LIQUOR', 'LIQUOR STORE',
-                   'TOOTHY MOOSE', 'WEST ROYALTY LIQUOR'],
+                   'TOOTHY MOOSE', 'WEST ROYALTY LIQUOR', 'HARVEST BEER WINE', 'HARVEST DOWNTOWN',
+                   'MERCATOR VINEYARDS'],
         'Food Delivery': ['DOORDASH', 'SKIPTHEDISHES', 'DD/DOORDASH'],
         'Restaurant': ['RESTAURANT', 'CAFE', 'COFFEE', 'PIZZA', 'BURGER', 'SUSHI', 'DINING',
                       'TIM HORTON', 'STARBUCKS', 'SUBWAY', 'MCDONALD', 'WENDY', 'A&W',
-                      'CHATIME', 'ANTOJO TACO', 'MASHAWEE', 'A TASTE OF INDIA', 'CAFFE LUCCA',
+                      'CHATIME', 'ANTOJO TACO', 'MASHAWEE', 'MASHASWEE', 'A TASTE OF INDIA', 'CAFFE LUCCA',
                       'AU LIBAN', 'BONEHEADS BBQ', 'DURTY NELLYS', 'STUBBORN GOAT', 'THE PINT',
                       'DAVE\'S LOBSTER', 'SALT & ASH', 'JACK ASTOR', 'KFC', 'DAIRY QUEEN',
                       'RISTORANTE', 'BOOSTER JUICE', 'WEIRD HARBOUR', 'STEVE-O-RENO',
-                      'THE MIDDLE SPOON', 'MERCANTILE SOCIAL', 'STARDUST BAR'],
-        'Dessert': ['COWS', 'DAIRY BAR', 'BLACK BEAR ICE CREAM', 'ICE CREAM'],
+                      'THE MIDDLE SPOON', 'MERCANTILE SOCIAL', 'STARDUST BAR',
+                      'BICYCLE THIEF', 'SEAHORSE TAVERN', 'BAR STILLWELL', 'TORIDORI',
+                      'SQ *THE BAO JOURNEY', 'THE NARROWS', 'QUESADA', 'CABLE WHARF',
+                      'ECONOMY SHOE SHOP', 'SQ *FRABJOUS DELIGHTS', 'PINATA CANTINA',
+                      'CHURRERIA', 'PANADERIA FIKA', 'LA CHAPELLE', 'LUCCIANOS',
+                      'ANITA LA MAMMA DEL GELATO', 'HIGH SOCIETY', 'PRETZELMAKER',
+                      'MRS. FIELD', 'KAI BRADYS', 'FERVOR PALMA', 'EWR C3 GLOBAL BAZAAR',
+                      'SQ *UNCOMMON GROUNDS', 'SQ *WORLD TEA HOUSE', 'TAQUILLA'],
+        'Dessert': ['COWS', 'DAIRY BAR', 'BLACK BEAR ICE CREAM', 'ICE CREAM', 'GELATO'],
         'Grocery': ['SOBEYS', 'SUPERSTORE', 'WHOLEFDS', 'WALMART', 'COSTCO', 'LOBLAWS', 'METRO',
                    'MASSTOWN MARKET', 'ARTHUR\'S URBAN MARKET', 'PRICE MART', 'NEEDS', 'CO-OP',
                    'HIGHMART', 'NOVA GROCERY', 'E-JOY FOOD MART', 'MISHOO\'S VARIETY',
-                   'L.A.SMITH CONVENIENCE'],
+                   'L.A.SMITH CONVENIENCE', 'HYDROSTONE GROCETERIA', 'POINT PLEASANT GROCERY',
+                   'DOLLARAMA', 'EMPIRE', 'SUPERMAX'],
+
+        # Transportation & Travel
+        'Hotels': ['HOTEL AXEL', 'HOTEL RUMBAO', 'RUMBAO TRIBUTE', 'MOXY HALIFAX', 'HOTEL'],
+        'Transportation': ['STRAIT CROSSING BRIDGE', 'HALIFAX HARBOUR BRIDGE', 'FREENOW',
+                          'PREMIER CAR SERVICE', 'MASABI', 'UNITED      0', 'UNITED AIRLINES'],
+        'Travel Booking': ['EXPEDIA'],
+        'Travel': ['AIR CAN', 'AIRCANADA', 'FORA TRAVEL', 'GETNOMAD'],
+        'Taxi': ['UBER', 'LYFT', 'TAXI', 'REVEL', 'BIRD'],
         'Gas': ['PETRO', 'IRVING', 'SHELL', 'ESSO', 'MOBIL', 'CIRCLE K'],
-        'Amazon': ['AMZN', 'AMAZON'],
+
+        # Utilities & Services
         'Utilities': ['EASTLINK', 'TELUS', 'BELL', 'ROGERS', 'NSPI', 'ELECTRIC', 'VOIP.MS'],
-        'Entertainment': ['NETFLIX', 'SPOTIFY', 'DISNEY', 'PRIME VIDEO', 'YOUTUBE', 'PSN', 'STEAM',
+        'Software': ['ADOBE', 'MICROSOFT', 'APPLE', 'GOOGLE', 'OPENAI', 'CHATGPT',
+                    'KAGI.COM', 'SERIF', 'OCULUS', 'TRANSUNION', 'CLAUDE.AI', 'PADDLE.NET',
+                    'MIMESTREAM', 'FLEXIBITS', 'FANTASTICAL', 'TOUCHNOTE', 'BIKEMAP',
+                    'PAYPAL *MYNOISE'],
+        'Shipping': ['UPS'],
+
+        # Entertainment
+        'Entertainment': ['NETFLIX', 'SPOTIFY', 'DISNEY', 'PRIME VIDEO', 'PRIMEVIDEO',
+                         'Ad free for PrimeVideo', 'YOUTUBE', 'PSN', 'STEAM',
                          'CRUNCHYROLL', 'PATREON', 'SONY INTERACTIVE', 'FUTURE FLASH ARCADE',
                          'EVENTBRITE', 'SPIRIT HALLOWEEN', 'NAUTICUS', 'MARITIME FUN GROUP',
-                         'AMBASSATOURS', 'HARBOUR QUEEN', 'CULTURE LINK'],
-        'Taxi': ['UBER', 'LYFT', 'TAXI', 'REVEL', 'BIRD'],
+                         'AMBASSATOURS', 'HARBOUR QUEEN', 'CULTURE LINK', 'PLAYSTATION NETWORK',
+                         'STEAMGAMES', 'CINEPLEX', 'HALIMAC AXE THROWING', 'SEVEN BAYS BOULDERING',
+                         'ACTIVATE HALIFAX', 'SQ *FUTURE FLASH ARCAD', 'SANDSPIT', 'TILT-A-WHI',
+                         'NBX*LIVE ART DANCE', 'HFX FEST', 'HALIFAXMUSIC', 'SHOWPASS'],
+
+        # Health & Personal
         'Medical': ['PHARMACY', 'DRUG', 'DENTAL', 'DOCTOR', 'CLINIC', 'HOSPITAL',
                    'BAYSHORE HEALTHCARE', 'LAWTONS', 'SUNLIFE', 'QEII FOUNDATION',
-                   'SUPPLEMENT KING', 'NOVA GP'],
-        'Clothing': ['SIMONS', 'H&M', 'ZARA', 'GAP', 'NIKE', 'ADIDAS', 'WORK AUTHORITY'],
-        'Software': ['ADOBE', 'MICROSOFT', 'APPLE', 'GOOGLE', 'OPENAI', 'CHATGPT',
-                    'KAGI.COM', 'SERIF', 'OCULUS', 'TRANSUNION'],
-        'Household': ['CANADIAN TIRE', 'IKEA', 'STAPLES', 'LONG & MCQUADE', 'FREAK LUNCHBOX'],
-        'Vehicle': ['PARKING', 'CAR WASH', 'AUTO'],
-        'Travel': ['AIR CAN', 'AIRCANADA', 'FORA TRAVEL', 'MOXY HALIFAX', 'GETNOMAD'],
+                   'SUPPLEMENT KING', 'NOVA GP', 'FARMACIA', 'WALGREENS', "MURPHY'S QUEEN STREET PHA"],
         'Personal Care': ['BARBERSHOP', 'BARBER', 'SEPHORA', 'DANIELS TAILORS', 'UVAPESHOP'],
         'Vaping': ['VAPE', 'TWENTY-FOUR ELEVEN VAP'],
-        'Shipping': ['UPS'],
+
+        # Other
+        'Vehicle': ['PARKING', 'CAR WASH', 'AUTO', 'ACCESS NOVA SCOTIA-RMV'],  # RMV = Registry of Motor Vehicles
+        'Donations': ['DONOR DRIVE', 'CCS DONOR', 'HALIFAX PRIDE'],
+        'Vending': ['SH VENDING', 'VENDING', 'AMFM VENDING'],
     }
 
     # Check each pattern
     for category, keywords in category_patterns.items():
         for keyword in keywords:
             if keyword in desc_upper:
+                # Special handling for "CANADA" - exclude company names
+                if keyword == 'CANADA' and 'INC' in desc_upper:
+                    continue
                 return category
 
     # Default to uncategorized
@@ -285,13 +339,10 @@ def suggest_category(description):
 
 def action_untagged():
     """
-    Query uncategorized transactions from past 3 months and suggest categories.
+    Query uncategorized transactions from 2025 and suggest categories.
     """
-    from datetime import datetime, timedelta
-
-    # Calculate 3 months ago
-    three_months_ago = datetime.now() - timedelta(days=90)
-    date_str = three_months_ago.strftime('%Y-%m-%d')
+    # Query all of 2025
+    date_str = '2025-01-01'
 
     query_string = f"has_no_category:true date_after:{date_str}"
     print(f"Querying uncategorized transactions since {date_str}...")
@@ -300,7 +351,7 @@ def action_untagged():
     transactions = _fetch_transactions(query_string, limit=500)
 
     if not transactions:
-        print("No uncategorized transactions found in the past 3 months.")
+        print("No uncategorized transactions found in 2025.")
         return
 
     print(f" - Found {len(transactions)} uncategorized transactions\n")
