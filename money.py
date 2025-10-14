@@ -11,7 +11,10 @@ Available actions:
   - data/untagged.csv: Full transaction details with suggested categories
   - data/untagged_updates.csv: Transaction IDs and categories for bulk updates
   Use apply_categories.py to apply the suggested categories to Firefly III.
-- assign-budget: Assign all unbudgeted withdrawal transactions from the past year to 'Spending' budget.
+- assign-budget: Assign all unbudgeted withdrawal transactions from the past year to appropriate budgets.
+  Categories 'vix-events' → Vix-Events, 'taweel' → Taweel, others → Spending.
+- refine-budgets: Refine budget assignments by moving transactions from 'Spending' to specialized budgets.
+  Checks categories and moves: vix-events → Vix-Events, taweel → Taweel, trip/travel → Trips.
 """
 
 import json
@@ -595,6 +598,148 @@ def action_assign_budget():
         print(f"Error connecting to Firefly III API: {e}")
         exit(1)
 
+def action_refine_budgets():
+    """
+    Refine budget assignments for transactions in 'Spending' budget.
+    Checks if transactions should be in Taweel, Vix-Events, or Trips budgets based on category.
+    """
+    from datetime import datetime, timedelta
+
+    # Calculate date one year ago
+    one_year_ago = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+
+    query_string = f"budget:Spending date_after:{one_year_ago}"
+    print(f"Querying 'Spending' budget transactions since {one_year_ago}...")
+    print(f" - Query: '{query_string}'")
+
+    # Fetch all Spending budget transactions
+    url = f"{API_BASE_URL}/search/transactions"
+    headers = get_headers()
+    params = {"query": query_string, "limit": "500"}
+
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        response.raise_for_status()
+
+        data = response.json()
+        records = data.get("data", [])
+
+        if not records:
+            print("No transactions found in 'Spending' budget.")
+            return
+
+        print(f" - Found {len(records)} transactions in 'Spending' budget\n")
+
+        # Extract transaction details
+        transaction_ids = []
+        transaction_details = []
+
+        for record in records:
+            if "attributes" in record and "transactions" in record["attributes"]:
+                tx_list = record["attributes"]["transactions"]
+                if tx_list:
+                    tx = tx_list[0]
+                    # Only process withdrawals (expenses)
+                    if tx.get('type') == 'withdrawal':
+                        transaction_ids.append(record["id"])
+                        transaction_details.append({
+                            'id': record["id"],
+                            'date': tx.get('date'),
+                            'description': tx.get('description'),
+                            'amount': tx.get('amount'),
+                            'category': tx.get('category_name', '')
+                        })
+
+        if not transaction_ids:
+            print("No withdrawal transactions found to refine.")
+            return
+
+        # Determine which transactions need budget changes
+        changes_needed = []
+        for i, tx_info in enumerate(transaction_details):
+            category = (tx_info.get('category') or '').lower()
+
+            # Determine correct budget based on category
+            new_budget = None
+            if 'vix-events' in category:
+                new_budget = "Vix-Events"
+            elif 'taweel' in category:
+                new_budget = "Taweel"
+            elif any(trip_cat in category for trip_cat in ['trip', 'travel']):
+                # Matches: Trip-Iceland, Travel, Travel Booking
+                new_budget = "Trips"
+
+            # Only add if budget needs to change
+            if new_budget:
+                changes_needed.append({
+                    'tx_id': transaction_ids[i],
+                    'tx_info': tx_info,
+                    'new_budget': new_budget
+                })
+
+        if not changes_needed:
+            print("No budget refinements needed. All transactions are correctly budgeted!")
+            return
+
+        print(f"Found {len(changes_needed)} transactions that need budget refinement:")
+        print(f"  - Spending → Vix-Events: {sum(1 for c in changes_needed if c['new_budget'] == 'Vix-Events')}")
+        print(f"  - Spending → Taweel: {sum(1 for c in changes_needed if c['new_budget'] == 'Taweel')}")
+        print(f"  - Spending → Trips: {sum(1 for c in changes_needed if c['new_budget'] == 'Trips')}")
+        print(f"\nRefining budget assignments...\n")
+
+        # Update transactions
+        success_count = 0
+        error_count = 0
+        budget_counts = {}
+
+        for i, change in enumerate(changes_needed, 1):
+            tx_id = change['tx_id']
+            tx_info = change['tx_info']
+            new_budget = change['new_budget']
+
+            budget_counts[new_budget] = budget_counts.get(new_budget, 0) + 1
+
+            try:
+                update_response = requests.put(
+                    f"{API_BASE_URL}/transactions/{tx_id}",
+                    headers=headers,
+                    json={
+                        "transactions": [{
+                            "budget_name": new_budget
+                        }]
+                    }
+                )
+
+                if update_response.status_code in [200, 204]:
+                    success_count += 1
+                    category_display = tx_info.get('category', '')[:15]
+                    print(f"[{i}/{len(changes_needed)}] ✓ {new_budget:12} | {category_display:15} | {tx_info['description'][:30]}")
+                else:
+                    error_count += 1
+                    print(f"[{i}/{len(changes_needed)}] ✗ Error {update_response.status_code} | {tx_info['description'][:30]}")
+
+                # Rate limiting
+                import time
+                time.sleep(0.1)
+
+            except requests.exceptions.RequestException as e:
+                error_count += 1
+                print(f"[{i}/{len(changes_needed)}] ✗ Error: {tx_info['description'][:30]} - {e}")
+
+        print("\n" + "=" * 80)
+        print("Summary:")
+        print(f"  ✓ Successfully refined: {success_count}")
+        if error_count > 0:
+            print(f"  ✗ Errors: {error_count}")
+        print(f"\nTransactions moved from Spending to:")
+        for budget, count in sorted(budget_counts.items()):
+            print(f"  {budget}: {count} transaction(s)")
+        print("=" * 80)
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error connecting to Firefly III API: {e}")
+        exit(1)
+
 def main():
     """Parse arguments and execute the appropriate action"""
     parser = argparse.ArgumentParser(description="Firefly III Transaction Tool")
@@ -637,6 +782,9 @@ def main():
     # Sub-parser for the "assign-budget" action
     assign_budget_parser = subparsers.add_parser("assign-budget", help="Assign all unbudgeted transactions from the past year to the 'Spending' budget.")
 
+    # Sub-parser for the "refine-budgets" action
+    refine_budgets_parser = subparsers.add_parser("refine-budgets", help="Refine budget assignments by moving transactions from 'Spending' to Taweel, Vix-Events, or Trips based on category.")
+
     args = parser.parse_args()
 
     # Execute the selected action
@@ -652,6 +800,8 @@ def main():
         action_untagged()
     elif args.action == "assign-budget":
         action_assign_budget()
+    elif args.action == "refine-budgets":
+        action_refine_budgets()
     # No need for an else here, as `required=True` in `add_subparsers` handles missing/invalid actions.
 
 if __name__ == "__main__":
