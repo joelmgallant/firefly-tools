@@ -64,11 +64,20 @@ python parse_category_patterns.py     # Export category_patterns dict to data/ca
 ### Core Patterns
 
 - **`_fetch_transactions(query_string, limit, paginate)`** in `money.py` is the central API query function. All transaction searches use Firefly III search syntax (e.g., `tag:payback`, `has_no_category:true`, `date_after:2025-01-01`).
+- **`_fetch_accounts(account_type)`** in `money.py` fetches accounts from `GET /api/v1/accounts`. Returns list of `{id, name, current_balance, currency_code}`.
 - **`suggest_category(description)`** in `money.py` is the keyword-matching engine. It uses an ordered dict of `{category: [keywords]}` where earlier entries take precedence. Keywords are matched case-insensitively against `description.upper()`.
-- **API response structure**: `data[].attributes.transactions[]` -- each record wraps a list of transaction splits; scripts always use `[0]` (first split).
+- **API response structure**: `data[].attributes.transactions[]` -- each record wraps a list of transaction splits; scripts always use `[0]` (first split). Account response structure: `data[].attributes` with `name`, `current_balance`, `currency_code`, `active` fields.
 - **Shared boilerplate**: Every script independently loads `.env`, creates headers with Bearer token. There is no shared module -- each script is self-contained.
 - **Rate limiting**: All bulk-update scripts use `time.sleep(0.1)` between API calls.
 - **CSV exports** go to `data/` (git-ignored). Standard columns: date, amount, description, category_name, source_name, currency_code, tags.
+
+### Reconciliation (`money.py`)
+
+- `reconcile`: Interactive balance reconciliation. No `--date` arg — fully interactive.
+- Fetches asset accounts via `GET /api/v1/accounts?type=asset` using `_fetch_accounts()`
+- Shows each account's Firefly balance, prompts user to enter actual balance from bank
+- On mismatch: offers to create an adjustment transaction (deposit or withdrawal) via `POST /api/v1/transactions` using `_create_reconciliation_transaction()`
+- Adjustment transactions are tagged `reconciliation`, have `apply_rules: False` and `fire_webhooks: False`, and use `(reconciliation)` as the counter-account name
 
 ### Budget Assignment Logic (`money.py`)
 
