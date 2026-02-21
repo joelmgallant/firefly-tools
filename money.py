@@ -655,6 +655,14 @@ def action_categorize(date_after='2025-03-01', auto_confirm=False):
         print(f"  ✗ Errors:   {error_count}")
     print("=" * 70)
 
+    # Step 2: Assign budgets to unbudgeted transactions
+    print("\n--- Assigning budgets ---\n")
+    action_assign_budget(date_after=date_after)
+
+    # Step 3: Refine budget assignments
+    print("\n--- Refining budgets ---\n")
+    action_refine_budgets(date_after=date_after)
+
 def action_list_rules():
     """
     List all automation rules from Firefly III.
