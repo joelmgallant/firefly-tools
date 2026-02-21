@@ -30,6 +30,7 @@ python money.py assign-budget --date 2025-03-01  # Assign budgets to unbudgeted 
 python money.py refine-budgets --date 2025-03-01 # Move mis-budgeted transactions to correct budgets
 python money.py categorize --date 2025-03-01   # Full pipeline: fetch, suggest, confirm, apply categories
 python money.py reconcile                      # Reconcile account balances against actual bank balances
+python money.py backup                         # Back up Firefly III Docker volumes to ~/backups/firefly/
 ```
 
 ### Standalone Scripts

@@ -26,6 +26,8 @@ Available actions:
 - reconcile: Interactive account balance reconciliation.
   Fetches asset accounts, compares Firefly balances to actual bank balances,
   and creates adjustment transactions for discrepancies.
+- backup: Back up Firefly III Docker volumes (database + uploads) to ~/backups/firefly/.
+  Creates timestamped tar.gz archives of both MariaDB data and uploads volumes.
 """
 
 import json
@@ -1356,6 +1358,68 @@ def action_reconcile():
     print(f"{'=' * 50}")
 
 
+def action_backup():
+    """Back up Firefly III Docker volumes (database + uploads).
+
+    Creates timestamped tar.gz archives of both the MariaDB data volume
+    and the uploads volume to ~/backups/firefly/.
+    """
+    import subprocess
+    from datetime import date
+
+    backup_dir = Path.home() / "backups" / "firefly"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = date.today().isoformat()
+
+    volumes = [
+        ("firefly-iii_firefly_iii_db", f"firefly_db_{timestamp}.tar.gz", "database"),
+        ("firefly-iii_firefly_iii_upload", f"firefly_upload_{timestamp}.tar.gz", "uploads"),
+    ]
+
+    results = []
+
+    for volume_name, filename, label in volumes:
+        filepath = backup_dir / filename
+        print(f"Backing up {label} ({volume_name})...")
+
+        cmd = [
+            "docker", "run", "--rm",
+            "-v", f"{volume_name}:/source:ro",
+            "-v", f"{backup_dir}:/backup",
+            "ubuntu",
+            "tar", "-czf", f"/backup/{filename}", "-C", "/source", ".",
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            if result.returncode == 0 and filepath.exists():
+                size_mb = filepath.stat().st_size / (1024 * 1024)
+                print(f"  ✓ {filename} ({size_mb:.1f} MB)")
+                results.append((label, "OK", size_mb))
+            else:
+                stderr = result.stderr.strip()[:200] if result.stderr else "Unknown error"
+                print(f"  ✗ Failed: {stderr}")
+                results.append((label, "FAILED", 0))
+        except subprocess.TimeoutExpired:
+            print(f"  ✗ Timed out after 5 minutes")
+            results.append((label, "TIMEOUT", 0))
+        except FileNotFoundError:
+            print(f"  ✗ Docker not found. Is Docker/OrbStack running?")
+            results.append((label, "FAILED", 0))
+            break
+
+    print(f"\n{'=' * 50}")
+    print("BACKUP SUMMARY")
+    print(f"{'=' * 50}")
+    for label, status, size_mb in results:
+        icon = "✓" if status == "OK" else "✗"
+        size_str = f"  ({size_mb:.1f} MB)" if size_mb > 0 else ""
+        print(f"  {icon} {label:12} {status}{size_str}")
+    print(f"  Location: {backup_dir}")
+    print(f"{'=' * 50}")
+
+
 def main():
     """Parse arguments and execute the appropriate action"""
     parser = argparse.ArgumentParser(description="Firefly III Transaction Tool")
@@ -1449,6 +1513,9 @@ def main():
     # Sub-parser for the "reconcile" action
     reconcile_parser = subparsers.add_parser("reconcile", help="Reconcile account balances against actual bank balances.")
 
+    # Sub-parser for the "backup" action
+    backup_parser = subparsers.add_parser("backup", help="Back up Firefly III Docker volumes (database + uploads).")
+
     args = parser.parse_args()
 
     # Execute the selected action
@@ -1472,6 +1539,8 @@ def main():
         action_categorize(date_after=args.date, auto_confirm=args.yes)
     elif args.action == "reconcile":
         action_reconcile()
+    elif args.action == "backup":
+        action_backup()
     # No need for an else here, as `required=True` in `add_subparsers` handles missing/invalid actions.
 
 if __name__ == "__main__":
