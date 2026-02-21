@@ -18,6 +18,9 @@ Available actions:
 - refine-budgets: Refine budget assignments by moving transactions from 'Spending' to specialized budgets.
   Accepts --date parameter (default: 2025-03-01)
   Checks categories and moves: vix-events → Vix-Events, taweel → Taweel, trip/travel → Trips.
+- categorize: Full categorization pipeline: fetch uncategorized, suggest categories, confirm, apply.
+  Accepts --date parameter (default: 2025-03-01) and --yes flag to skip confirmation.
+  Exports data/untagged.csv and data/untagged_updates.csv as audit trail.
 """
 
 import json
