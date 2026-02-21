@@ -1260,6 +1260,99 @@ def action_recategorize(category_name, auto_confirm=False):
     print(f"{'=' * 70}")
 
 
+def action_reconcile():
+    """Interactive account balance reconciliation.
+
+    Fetches all asset accounts, lets user select which to reconcile,
+    compares Firefly balances against actual balances entered by user,
+    and offers to create adjustment transactions for discrepancies.
+    """
+    print("Fetching accounts...\n")
+    accounts = _fetch_accounts(account_type="asset")
+
+    if not accounts:
+        print("No asset accounts found.")
+        return
+
+    # Display accounts for selection
+    print("Select accounts to reconcile:")
+    for i, acct in enumerate(accounts, 1):
+        balance = acct['current_balance']
+        sign = "" if balance >= 0 else ""
+        print(f"  [{i}] {acct['name']:30} {sign}${abs(balance):>12,.2f} {acct['currency_code']}")
+
+    print()
+    selection = input("Enter account numbers (comma-separated, or 'all'): ").strip()
+
+    if selection.lower() == 'all':
+        selected = accounts
+    else:
+        try:
+            indices = [int(s.strip()) - 1 for s in selection.split(',')]
+            selected = [accounts[i] for i in indices if 0 <= i < len(accounts)]
+        except (ValueError, IndexError):
+            print("Invalid selection.")
+            return
+
+    if not selected:
+        print("No accounts selected.")
+        return
+
+    # Reconcile each selected account
+    results = []
+
+    for acct in selected:
+        print(f"\n{'─' * 50}")
+        print(f"Reconciling: {acct['name']}")
+        print(f"{'─' * 50}")
+        print(f"  Firefly balance: ${acct['current_balance']:>12,.2f} {acct['currency_code']}")
+
+        actual_input = input(f"  Actual balance:  $").strip()
+
+        try:
+            actual_balance = float(actual_input.replace(',', ''))
+        except ValueError:
+            print("  Invalid amount, skipping.")
+            results.append({"account": acct['name'], "status": "skipped", "diff": 0})
+            continue
+
+        diff = actual_balance - acct['current_balance']
+
+        if abs(diff) < 0.01:
+            print("  ✓ Balances match!")
+            results.append({"account": acct['name'], "status": "OK", "diff": 0})
+            continue
+
+        direction = "lower" if diff < 0 else "higher"
+        print(f"  Difference: ${diff:>+,.2f} (actual is ${abs(diff):,.2f} {direction} than Firefly)")
+
+        create = input("  Create adjustment transaction? [y/N]: ").strip().lower()
+
+        if create in ['y', 'yes']:
+            success, message = _create_reconciliation_transaction(
+                acct['id'], acct['name'], diff, acct['currency_code']
+            )
+            if success:
+                print(f"  ✓ {message}")
+                results.append({"account": acct['name'], "status": "adjusted", "diff": diff})
+            else:
+                print(f"  ✗ {message}")
+                results.append({"account": acct['name'], "status": "error", "diff": diff})
+        else:
+            print("  Skipped adjustment.")
+            results.append({"account": acct['name'], "status": "skipped", "diff": diff})
+
+    # Summary
+    print(f"\n{'=' * 50}")
+    print("RECONCILIATION SUMMARY")
+    print(f"{'=' * 50}")
+    for r in results:
+        status_icon = {"OK": "✓", "adjusted": "⟳", "skipped": "⊘", "error": "✗"}.get(r['status'], "?")
+        diff_str = f"  (${r['diff']:>+,.2f})" if r['diff'] != 0 else ""
+        print(f"  {status_icon} {r['account']:30} {r['status']}{diff_str}")
+    print(f"{'=' * 50}")
+
+
 def main():
     """Parse arguments and execute the appropriate action"""
     parser = argparse.ArgumentParser(description="Firefly III Transaction Tool")
