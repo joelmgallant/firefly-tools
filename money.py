@@ -434,8 +434,9 @@ def suggest_category(description):
                          'AXE MANAGEMENT', 'PIE OH MY', 'PEI CMC', 'QUEEN\'S MARQUE'],
 
         # Health & Personal
+        'Taweel': ['BAYSHORE HEALTHCARE', 'STARLINK INTERNET'],
         'Medical': ['PHARMACY', 'DRUG', 'DENTAL', 'DOCTOR', 'CLINIC', 'HOSPITAL',
-                   'BAYSHORE HEALTHCARE', 'LAWTONS', 'SUNLIFE', 'QEII FOUNDATION',
+                   'LAWTONS', 'SUNLIFE', 'QEII FOUNDATION',
                    'SUPPLEMENT KING', 'NOVA GP', 'FARMACIA', 'WALGREENS', "MURPHY'S QUEEN STREET PHA",
                    'MEDICINE SHOPPE', 'SIGNATURE HEALTH', 'KEYSTONE HEALTH', 'PERIODONTICS',
                    'SLEEP THERAPUTICS', 'BEDFORD PERIODONTICS', 'QEII PARKING'],
