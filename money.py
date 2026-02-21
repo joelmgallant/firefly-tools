@@ -164,6 +164,42 @@ def _fetch_transactions(query_string, limit=500, paginate=False):
 
     return all_transactions
 
+def _fetch_accounts(account_type="asset"):
+    """Fetch accounts from Firefly III API.
+
+    Args:
+        account_type: Account type filter (asset, expense, revenue, etc.)
+
+    Returns:
+        List of dicts with keys: id, name, current_balance, currency_code
+    """
+    url = f"{API_BASE_URL}/accounts"
+    headers = get_headers()
+    params = {"type": account_type, "limit": "50"}
+
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        data = response.json()
+
+        accounts = []
+        for record in data.get("data", []):
+            attrs = record["attributes"]
+            if not attrs.get("active", True):
+                continue
+            accounts.append({
+                "id": record["id"],
+                "name": attrs["name"],
+                "current_balance": float(attrs["current_balance"]),
+                "currency_code": attrs.get("currency_code", "CAD"),
+            })
+
+        return accounts
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching accounts: {e}")
+        exit(1)
+
 # Modified fetch_transactions_by_tag to use the internal _fetch_transactions
 def fetch_transactions_by_tag(tag, limit=500):
     """Fetch transactions with a specific tag."""
