@@ -1278,7 +1278,7 @@ def action_reconcile():
     print("Select accounts to reconcile:")
     for i, acct in enumerate(accounts, 1):
         balance = acct['current_balance']
-        sign = "" if balance >= 0 else ""
+        sign = "" if balance >= 0 else "-"
         print(f"  [{i}] {acct['name']:30} {sign}${abs(balance):>12,.2f} {acct['currency_code']}")
 
     print()
