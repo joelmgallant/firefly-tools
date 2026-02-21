@@ -21,6 +21,7 @@ End-to-end workflow for importing bank CSV exports into Firefly III via the data
 | Component | Location |
 |-----------|----------|
 | Raw downloads | `bank-csvs/download/` |
+| Archive | `bank-csvs/archive/` (YYMMDD-bank-N.csv) |
 | Merge script | `bank-csvs/merge_downloads.sh` |
 | RBC merged CSV | `bank-csvs/rbc.csv` (has header row) |
 | TD merged CSV | `bank-csvs/td.csv` (no headers) |
@@ -45,7 +46,7 @@ End-to-end workflow for importing bank CSV exports into Firefly III via the data
 | TD Visa | `accountactivity*.csv` | No headers, 5 cols: date, description, debit, credit, balance | `td.csv` |
 | RBC | `csv*.csv` | Header row, 8 cols: Account Type, Account Number, Transaction Date, Cheque Number, Description 1, Description 2, CAD$, USD$ | `rbc.csv` |
 
-The merge script handles deduplication of RBC headers (keeps one) and concatenates all TD files directly.
+The merge script handles deduplication of RBC headers (keeps one) and concatenates all TD files directly. After merging, originals are renamed with a date prefix (`YYMMDD-bank-N.csv`) and moved to `archive/`.
 
 ## Docker Architecture
 
