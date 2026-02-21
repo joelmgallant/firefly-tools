@@ -23,6 +23,9 @@ Available actions:
 - categorize: Full categorization pipeline: fetch uncategorized, suggest categories, confirm, apply.
   Accepts --date parameter (default: 2025-03-01) and --yes flag to skip confirmation.
   Exports data/untagged.csv and data/untagged_updates.csv as audit trail.
+- reconcile: Interactive account balance reconciliation.
+  Fetches asset accounts, compares Firefly balances to actual bank balances,
+  and creates adjustment transactions for discrepancies.
 """
 
 import json
@@ -1443,6 +1446,9 @@ def main():
         help="Skip confirmation prompt and apply immediately"
     )
 
+    # Sub-parser for the "reconcile" action
+    reconcile_parser = subparsers.add_parser("reconcile", help="Reconcile account balances against actual bank balances.")
+
     args = parser.parse_args()
 
     # Execute the selected action
@@ -1464,6 +1470,8 @@ def main():
         action_recategorize(args.category_name, auto_confirm=args.yes)
     elif args.action == "categorize":
         action_categorize(date_after=args.date, auto_confirm=args.yes)
+    elif args.action == "reconcile":
+        action_reconcile()
     # No need for an else here, as `required=True` in `add_subparsers` handles missing/invalid actions.
 
 if __name__ == "__main__":
