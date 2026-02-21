@@ -200,6 +200,80 @@ def _fetch_accounts(account_type="asset"):
         print(f"Error fetching accounts: {e}")
         exit(1)
 
+def _create_reconciliation_transaction(account_id, account_name, amount, currency_code="CAD"):
+    """Create a reconciliation adjustment transaction.
+
+    If amount is positive, creates a deposit (Firefly balance is too low).
+    If amount is negative, creates a withdrawal (Firefly balance is too high).
+
+    Args:
+        account_id: Firefly account ID
+        account_name: Account name (for display)
+        amount: Adjustment amount (positive = deposit, negative = withdrawal)
+        currency_code: Currency code (default CAD)
+
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    from datetime import date
+
+    url = f"{API_BASE_URL}/transactions"
+    headers = get_headers()
+
+    abs_amount = abs(amount)
+
+    if amount > 0:
+        # Deposit: money coming IN to the account
+        tx_type = "deposit"
+        source_name = "(reconciliation)"
+        destination_id = str(account_id)
+        destination_name = None
+        source_id = None
+    else:
+        # Withdrawal: money going OUT of the account
+        tx_type = "withdrawal"
+        source_id = str(account_id)
+        source_name = None
+        destination_name = "(reconciliation)"
+        destination_id = None
+
+    transaction = {
+        "type": tx_type,
+        "date": date.today().isoformat(),
+        "amount": f"{abs_amount:.2f}",
+        "description": f"Reconciliation adjustment — {account_name}",
+        "currency_code": currency_code,
+        "tags": ["reconciliation"],
+    }
+
+    if source_id:
+        transaction["source_id"] = source_id
+    if source_name:
+        transaction["source_name"] = source_name
+    if destination_id:
+        transaction["destination_id"] = destination_id
+    if destination_name:
+        transaction["destination_name"] = destination_name
+
+    payload = {
+        "apply_rules": False,
+        "fire_webhooks": False,
+        "transactions": [transaction],
+    }
+
+    try:
+        response = requests.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        return True, f"Created {tx_type} of ${abs_amount:.2f}"
+    except requests.exceptions.RequestException as e:
+        error_detail = ""
+        if hasattr(e, 'response') and e.response is not None:
+            try:
+                error_detail = e.response.json().get("message", e.response.text[:200])
+            except Exception:
+                error_detail = e.response.text[:200]
+        return False, f"Failed to create transaction: {e} {error_detail}"
+
 # Modified fetch_transactions_by_tag to use the internal _fetch_transactions
 def fetch_transactions_by_tag(tag, limit=500):
     """Fetch transactions with a specific tag."""
