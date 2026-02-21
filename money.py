@@ -21,6 +21,7 @@ Available actions:
 """
 
 import json
+import time
 import requests
 import pandas as pd
 import argparse
@@ -50,6 +51,42 @@ def get_headers():
         "content-type": "application/json",
         "user-agent": "vscode-restclient",
     }
+
+def _update_transaction_category(transaction_id, category_name):
+    """Update a single transaction's category via Firefly III API.
+
+    Args:
+        transaction_id: The transaction journal ID
+        category_name: The category to assign
+
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    if category_name == '(Uncategorized)':
+        return True, "Skipped - no category suggested"
+
+    url = f"{API_BASE_URL}/transactions/{transaction_id}"
+    headers = get_headers()
+
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        transaction_data = response.json()
+    except requests.exceptions.RequestException as e:
+        return False, f"Failed to fetch transaction: {e}"
+
+    attrs = transaction_data['data']['attributes']
+    if 'transactions' not in attrs or not attrs['transactions']:
+        return False, "No transaction splits found"
+
+    attrs['transactions'][0]['category_name'] = category_name
+
+    try:
+        response = requests.put(url, headers=headers, json={'transactions': attrs['transactions']})
+        response.raise_for_status()
+        return True, f"Updated to '{category_name}'"
+    except requests.exceptions.RequestException as e:
+        return False, f"Failed to update: {e}"
 
 # Internal function to fetch transactions based on a generic query string
 def _fetch_transactions(query_string, limit=500, paginate=False):
