@@ -546,6 +546,112 @@ def action_untagged(date_after='2025-03-01'):
             print(f"  {date_str} | {amount_str} | {row['description'][:60]}")
         print(f"  → {len(group)} transaction(s), Total: ${float(group['amount'].sum()):.2f}")
 
+def action_categorize(date_after='2025-03-01', auto_confirm=False):
+    """
+    Full categorization pipeline: fetch uncategorized transactions, suggest categories,
+    show summary, confirm, and apply updates via API.
+
+    Args:
+        date_after: Only fetch transactions after this date (YYYY-MM-DD format)
+        auto_confirm: If True, skip confirmation prompt
+    """
+    query_string = f"has_no_category:true date_after:{date_after}"
+    print(f"Fetching uncategorized transactions since {date_after}...")
+
+    transactions = _fetch_transactions(query_string, limit=500, paginate=True)
+
+    if not transactions:
+        print(f"No uncategorized transactions found since {date_after}.")
+        return
+
+    print(f"\nFound {len(transactions)} uncategorized transactions\n")
+
+    # Suggest categories
+    for tx in transactions:
+        tx['suggested_category'] = suggest_category(tx.get('description', ''))
+
+    df = pd.DataFrame(transactions)
+
+    # Export CSVs (audit trail)
+    data_dir = Path(__file__).parent / 'data'
+    data_dir.mkdir(exist_ok=True)
+
+    export_columns = ["date", "amount", "description", "suggested_category", "source_name", "currency_code"]
+    export_df = df[export_columns].copy()
+    export_df['amount'] = pd.to_numeric(export_df['amount'])
+    export_df['date'] = pd.to_datetime(export_df['date'], utc=True)
+    export_df = export_df.sort_values('date', ascending=False)
+    export_df.to_csv(data_dir / "untagged.csv", index=False)
+
+    update_columns = ["transaction_journal_id", "date", "amount", "description", "suggested_category"]
+    update_df = df[update_columns].copy()
+    update_df['date'] = pd.to_datetime(update_df['date'], utc=True)
+    update_df = update_df.sort_values(['suggested_category', 'date'], ascending=[True, False])
+    update_df.to_csv(data_dir / "untagged_updates.csv", index=False)
+
+    # Summary table
+    print("=" * 70)
+    print("CATEGORY SUMMARY")
+    print("=" * 70)
+    summary = export_df.groupby('suggested_category').agg(
+        count=('amount', 'size'),
+        total=('amount', 'sum')
+    ).sort_values('total', ascending=False)
+
+    for category, row in summary.iterrows():
+        print(f"  {category:25} {int(row['count']):4} txns  ${row['total']:>10.2f}")
+
+    to_update = df[df['suggested_category'] != '(Uncategorized)']
+    to_skip = df[df['suggested_category'] == '(Uncategorized)']
+    print(f"\n  To apply:  {len(to_update)} transactions")
+    print(f"  To skip:   {len(to_skip)} transactions (uncategorized)")
+    print("=" * 70)
+
+    if to_update.empty:
+        print("\nNo categories to apply.")
+        return
+
+    # Confirm
+    if not auto_confirm:
+        response = input("\nProceed with applying categories? (yes/no): ")
+        if response.lower() not in ['yes', 'y']:
+            print("Cancelled.")
+            return
+
+    # Apply
+    print("\nApplying categories...\n")
+    success_count = 0
+    skip_count = 0
+    error_count = 0
+
+    for idx, row in df.iterrows():
+        tx_id = row['transaction_journal_id']
+        category = row['suggested_category']
+        description = row.get('description', '')
+
+        success, message = _update_transaction_category(tx_id, category)
+
+        if category == '(Uncategorized)':
+            skip_count += 1
+        elif success:
+            success_count += 1
+            print(f"  ✓ {description[:50]:50} → {category}")
+        else:
+            error_count += 1
+            print(f"  ✗ {description[:50]:50} → {message}")
+
+        time.sleep(0.1)
+
+    print("\n" + "=" * 70)
+    print("RESULTS")
+    print("=" * 70)
+    print(f"  ✓ Applied:  {success_count}")
+    if skip_count > 0:
+        print(f"  ⊘ Skipped:  {skip_count} (uncategorized)")
+    if error_count > 0:
+        print(f"  ✗ Errors:   {error_count}")
+    print("=" * 70)
+
 def action_list_rules():
     """
     List all automation rules from Firefly III.
