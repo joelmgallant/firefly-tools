@@ -4,183 +4,92 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This repository contains Python scripts for interacting with Firefly III, an open-source personal finance manager. The main script (`money.py`) queries transaction data from a local Firefly III instance and performs various operations like filtering, searching, and exporting to CSV.
+Python scripts for automating personal finance management via [Firefly III](https://www.firefly-iii.org/) API. The tools handle transaction categorization, budget assignment, and automation rule synchronization.
 
 ## Environment Setup
 
-1. **Python Virtual Environment**: Use `venv/` for dependencies
-   ```bash
-   # Activate virtual environment
-   source venv/bin/activate
-
-   # Install dependencies
-   pip install -r requirements.txt
-   ```
-
-2. **Environment Variables**: Create `.env` from `.env.example`
-   ```
-   FIREFLY_API_BASE_URL=http://example.com/api/v1
-   FIREFLY_API_TOKEN=your_api_token_here
-   ```
-
-## Running the Scripts
-
-The `money.py` script uses subcommands:
-
 ```bash
-# Query transactions tagged with "payback" OR category "vix-events"
-python money.py payback
-
-# Search transactions by amount
-python money.py search --amount 123.45
-
-# Search by category
-python money.py category "vix-events"
-
-# List all automation rules
-python money.py list-rules
-
-# Query uncategorized transactions and suggest categories (NEW)
-python money.py untagged
+source venv/bin/activate
+pip install -r requirements.txt
+# Copy .env.example to .env and fill in FIREFLY_API_BASE_URL and FIREFLY_API_TOKEN
 ```
 
-The `apply_categories.py` script applies suggested categories:
+## Commands
+
+### Main CLI (`money.py`)
+
+All subcommands accept `--date YYYY-MM-DD` where applicable (default: `2025-03-01`).
 
 ```bash
-# Interactive mode
-python apply_categories.py
+python money.py payback                        # Export payback/vix-events transactions to CSV
+python money.py search --amount 123.45         # Search by exact amount
+python money.py category "vix-events"          # Search by category name
+python money.py list-rules                     # List all automation rules
+python money.py untagged --date 2025-03-01     # Find uncategorized transactions, suggest categories
+python money.py assign-budget --date 2025-03-01  # Assign budgets to unbudgeted withdrawals
+python money.py refine-budgets --date 2025-03-01 # Move mis-budgeted transactions to correct budgets
+```
 
-# Non-interactive mode
-python apply_categories.py --yes
+### Standalone Scripts
+
+```bash
+python apply_categories.py [--yes]    # Apply suggested categories from data/untagged_updates.csv
+python sync_rules.py [--dry-run]      # Sync local category patterns to Firefly III automation rules
+python audit_rules.py                 # Export all Firefly rules to data/firefly_rules.json
+python trigger_all_rules.py           # Trigger all active rules on existing transactions
+python assign_transfer_budget.py      # Assign all Transfer-category transactions to Transfers budget
+python compare_rules_patterns.py      # Compare Firefly rules vs local patterns, output gaps
+python parse_category_patterns.py     # Export category_patterns dict to data/category_patterns.json
 ```
 
 ## Architecture
 
-### Core Components
+### Data Flow: Two Main Pipelines
 
-- **money.py**: Main transaction query and analysis tool
-  - **API Configuration**: Environment-based configuration for Firefly III API connection
-  - **Generic Query Function** (`_fetch_transactions`): Internal function that handles all API requests using query strings
-  - **Category Suggestion System** (`suggest_category`): AI pattern matching to suggest categories based on transaction descriptions
-    - Supports 13+ category types (Debt, Transfer, Restaurant, Grocery, Medical, Household, etc.)
-    - Uses keyword matching on transaction descriptions
-    - Returns `(Uncategorized)` for unknown patterns
-  - **Action Functions**: Command handlers for different operations
-    - `action_payback()`: Query transactions with tag "payback" OR category "vix-events", export to CSV
-    - `action_search_transactions()`: Search by exact amount
-    - `action_category()`: Search by category name
-    - `action_list_rules()`: List all automation rules from Firefly III
-    - `action_untagged()`: **NEW** - Query uncategorized transactions from past 3 months, suggest categories, export to CSV
-  - **CLI Entry Point** (`main()`): Argument parsing using subparsers
+**Categorization Pipeline:**
+1. `money.py untagged` -- queries uncategorized transactions, runs `suggest_category()` keyword matching, exports `data/untagged.csv` + `data/untagged_updates.csv`
+2. (Optional) Manual review/edit of `data/untagged_updates.csv`
+3. `apply_categories.py --yes` -- reads CSV, PUTs category updates to Firefly API
 
-- **apply_categories.py**: Bulk category update tool
-  - **Transaction Update Function** (`update_transaction_category`): Updates a single transaction's category via PUT request
-  - **Main Workflow**:
-    1. Reads `data/untagged_updates.csv`
-    2. Shows summary of categories to apply
-    3. Asks for confirmation (unless `--yes` flag)
-    4. Updates each transaction via API with rate limiting (0.1s delay)
-    5. Shows progress and final summary
-  - **CLI Entry Point** (`main()`): Argument parsing with `--yes` flag for non-interactive mode
+**Rule Synchronization Pipeline:**
+1. `audit_rules.py` -- fetches all rules from Firefly, saves `data/firefly_rules.json`
+2. `parse_category_patterns.py` -- exports `suggest_category()` patterns to `data/category_patterns.json`
+3. `compare_rules_patterns.py` -- diffs rules vs patterns, outputs `data/rules_comparison.json`
+4. `sync_rules.py --dry-run` -- previews rule updates/creates based on comparison
+5. `sync_rules.py` -- applies changes to Firefly III
+6. `trigger_all_rules.py` -- runs all active rules on existing transactions
 
-- **update_vix_rules.py**: Updates all vix-events rules to add "payback" tag
-- **trigger_vix_rules.py**: Triggers execution of all vix-events rules on existing transactions
+### Core Patterns
 
-### API Integration
+- **`_fetch_transactions(query_string, limit, paginate)`** in `money.py` is the central API query function. All transaction searches use Firefly III search syntax (e.g., `tag:payback`, `has_no_category:true`, `date_after:2025-01-01`).
+- **`suggest_category(description)`** in `money.py` is the keyword-matching engine. It uses an ordered dict of `{category: [keywords]}` where earlier entries take precedence. Keywords are matched case-insensitively against `description.upper()`.
+- **API response structure**: `data[].attributes.transactions[]` -- each record wraps a list of transaction splits; scripts always use `[0]` (first split).
+- **Shared boilerplate**: Every script independently loads `.env`, creates headers with Bearer token. There is no shared module -- each script is self-contained.
+- **Rate limiting**: All bulk-update scripts use `time.sleep(0.1)` between API calls.
+- **CSV exports** go to `data/` (git-ignored). Standard columns: date, amount, description, category_name, source_name, currency_code, tags.
 
-- **Firefly III API**: Documented at https://api-docs.firefly-iii.org/
-- **Search API**: Documented at https://docs.firefly-iii.org/references/firefly-iii/search/
-- **Authentication**: Bearer token via environment variable
-- **Query Format**: Uses Firefly III's search syntax (e.g., `tag:payback`, `amount:123.45`)
-- **Response Structure**: Nested JSON with `data[].attributes.transactions[]` hierarchy
+### Budget Assignment Logic (`money.py`)
 
-### Data Output
+- `assign-budget`: Routes unbudgeted withdrawals -- `vix-events` category to `Vix-Events` budget, `taweel` to `Taweel`, everything else to `Spending`
+- `refine-budgets`: Re-routes `Spending` transactions -- checks for `vix-events`/`taweel`/`trip`/`travel` categories and moves to `Vix-Events`/`Taweel`/`Trips` budgets
 
-- **CSV Exports**: Stored in `data/` directory (git-ignored)
-- **Standard Columns**: date, amount, description, category_name, source_name, currency_code, tags
-- **File Naming**: Action-specific
-  - `data/payback.csv`: Transactions with tag "payback" OR category "vix-events" (sorted by date)
-  - `data/untagged.csv`: **NEW** - All uncategorized transactions with suggested categories (sorted by date)
-  - `data/untagged_updates.csv`: **NEW** - Transaction IDs and suggested categories for bulk updates (sorted by category, then date)
+### Adding New Actions to `money.py`
 
-## Category Suggestion System
+1. Create `action_<name>(date_after=...)` function
+2. Use `_fetch_transactions(query_string)` with Firefly search syntax
+3. Add subparser in `main()` with `--date` arg if needed
+4. Follow existing DataFrame column selection pattern
+5. Export to `data/<name>.csv` if needed
 
-The `suggest_category()` function uses keyword matching to automatically categorize transactions:
+### Adding New Category Keywords
 
-### Supported Categories
+Edit the `category_patterns` dict in `suggest_category()` in `money.py`. Order matters -- more specific patterns before generic ones. After updating, run the rule sync pipeline to push changes to Firefly III automation rules.
 
-| Category | Keywords |
-|----------|----------|
-| **Debt** | LOAN PMT, BILL PMT, WWW PMT |
-| **Transfer** | TRANSFER, TFR |
-| **Restaurant** | RESTAURANT, CAFE, COFFEE, PIZZA, BURGER, SUSHI, DINING, TIM HORTON, STARBUCKS, SUBWAY, MCDONALD, WENDY, A&W |
-| **Grocery** | SOBEYS, SUPERSTORE, WHOLEFDS, WALMART, COSTCO, LOBLAWS, METRO |
-| **Gas** | PETRO, IRVING, SHELL, ESSO, MOBIL, CIRCLE K |
-| **Amazon** | AMZN, AMAZON |
-| **Utilities** | EASTLINK, TELUS, BELL, ROGERS, NSPI, ELECTRIC |
-| **Entertainment** | NETFLIX, SPOTIFY, DISNEY, PRIME VIDEO, YOUTUBE, PSN, STEAM |
-| **Taxi** | UBER, LYFT, TAXI, REVEL |
-| **Medical** | PHARMACY, DRUG, DENTAL, DOCTOR, CLINIC, HOSPITAL |
-| **Clothing** | SIMONS, H&M, ZARA, GAP, NIKE, ADIDAS |
-| **Software** | ADOBE, MICROSOFT, APPLE, GOOGLE |
-| **Household** | CANADIAN TIRE, IKEA |
-| **Vehicle** | PARKING, CAR WASH, AUTO |
+## API References
 
-### Adding New Categories
+- Firefly III API: https://api-docs.firefly-iii.org/
+- Search syntax: https://docs.firefly-iii.org/references/firefly-iii/search/
 
-To add a new category or keywords:
+## Related Context
 
-1. Edit the `category_patterns` dictionary in `suggest_category()` function in `money.py`
-2. Add your category name as a key and a list of keywords as the value
-3. Keywords are matched case-insensitively against transaction descriptions
-4. Earlier categories in the dictionary take precedence if multiple keywords match
-
-## Workflow: Auto-Categorize Uncategorized Transactions
-
-1. **Generate Suggestions**:
-   ```bash
-   python money.py untagged
-   ```
-   - Queries transactions with `has_no_category:true` from past 90 days
-   - Applies pattern matching via `suggest_category()`
-   - Exports `data/untagged.csv` (for review) and `data/untagged_updates.csv` (for bulk update)
-
-2. **Review Suggestions** (Optional):
-   - Open `data/untagged_updates.csv`
-   - File is sorted by category, then date
-   - Manually edit the `suggested_category` column if needed
-
-3. **Apply Categories**:
-   ```bash
-   python apply_categories.py --yes
-   ```
-   - Reads `data/untagged_updates.csv`
-   - Updates each transaction via PUT `/transactions/{id}`
-   - Skips transactions with `(Uncategorized)` category
-   - Shows progress and summary
-
-## Adding New Actions
-
-When adding new transaction query capabilities:
-
-1. Create a new action function: `action_<name>()`
-2. Use `_fetch_transactions(query_string)` with appropriate Firefly III query syntax
-3. Add subparser in `main()` with required arguments
-4. Follow the same DataFrame column selection pattern for consistency
-5. Export to `data/<name>.csv` if CSV output is needed
-
-## Dependencies
-
-- **requests**: Firefly III API HTTP client
-- **pandas**: DataFrame operations and CSV export
-- **python-dotenv**: Environment variable management
-
-## Google Calendar Integration (Related Context)
-
-The `.github/copilot-instructions.md` file contains rules for a separate Google Calendar workflow (`finance-neo`) that tracks bills and payment status. This is related context but not currently integrated with `money.py`:
-
-- Calendar ID: `1755c3b50e83da3aacb593d8bbc62937cad5d0e13fee28edc38e597c8e7d9f04@group.calendar.google.com`
-- Paid events marked with ✅ prefix and green color (Color ID `10`)
-- Monthly TSV exports with columns: Date, Name, Amount, Payment Status, Category
-- Categories: Investment, Housing, Loan, Utilities, Entertainment, Personal Transfer, Insurance, Bank Fee, Credit Card, Medical
-- swagger docs for firefly-iii are available at https://api-docs.firefly-iii.org/
+The `.github/copilot-instructions.md` file documents a separate Google Calendar workflow (`finance-neo`) for tracking bills/payment status. Calendar ID: `1755c3b50e83da3aacb593d8bbc62937cad5d0e13fee28edc38e597c8e7d9f04@group.calendar.google.com`. Not currently integrated with the Firefly scripts.

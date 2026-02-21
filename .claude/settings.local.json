@@ -11,7 +11,9 @@
     "deny": [],
     "ask": [],
     "additionalDirectories": [
-      "/Users/joelmgallant/Library/Mobile Documents/com~apple~Numbers/Documents/"
+      "/Users/joelmgallant/Library/Mobile Documents/com~apple~Numbers/Documents/",
+      "/Users/joelmgallant/git/firefly-iii/"
     ]
-  }
+  },
+  "outputStyle": "radical-dudebro"
 }
