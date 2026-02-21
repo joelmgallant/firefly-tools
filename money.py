@@ -18,6 +18,8 @@ Available actions:
 - refine-budgets: Refine budget assignments by moving transactions from 'Spending' to specialized budgets.
   Accepts --date parameter (default: 2025-03-01)
   Checks categories and moves: vix-events → Vix-Events, taweel → Taweel, trip/travel → Trips.
+- recategorize: Re-run suggest_category() on all transactions in a category and reclassify mismatches.
+  Usage: python money.py recategorize "Taxi"
 - categorize: Full categorization pipeline: fetch uncategorized, suggest categories, confirm, apply.
   Accepts --date parameter (default: 2025-03-01) and --yes flag to skip confirmation.
   Exports data/untagged.csv and data/untagged_updates.csv as audit trail.
@@ -345,7 +347,7 @@ def suggest_category(description):
                    'TOOTHY MOOSE', 'WEST ROYALTY LIQUOR', 'HARVEST BEER WINE', 'HARVEST DOWNTOWN',
                    'MERCATOR VINEYARDS', 'CHAIN YARD CIDER', 'SQ *PROPELLER B', 'BRASSERIE MCAUSLAN',
                    'ALCOOL NB LIQUOR'],
-        'Food Delivery': ['DOORDASH', 'SKIPTHEDISHES', 'DD/DOORDASH'],
+        'Food Delivery': ['DOORDASH', 'SKIPTHEDISHES', 'DD/DOORDASH', 'UBEREATS', 'UBER   EATS', 'UBER* EATS'],
         'Restaurant': ['RESTAURANT', 'CAFE', 'COFFEE', 'PIZZA', 'BURGER', 'SUSHI', 'DINING',
                       'TIM HORTON', 'STARBUCKS', 'SUBWAY', 'MCDONALD', 'WENDY', 'A&W',
                       'CHATIME', 'ANTOJO TACO', 'MASHAWEE', 'MASHASWEE', 'A TASTE OF INDIA', 'CAFFE LUCCA',
@@ -404,7 +406,7 @@ def suggest_category(description):
         'Travel Booking': ['EXPEDIA', 'FLIGHTCONNECTIONS'],
         'Travel': ['AIR CAN', 'AIRCANADA', 'FORA TRAVEL', 'GETNOMAD', 'VIRGIN VOYAGES',
                   'VIRGIN CRUISE', 'WESTJET', 'DELTA AIR'],
-        'Taxi': ['UBER', 'LYFT', 'TAXI', 'REVEL', 'BIRD', 'MOVE SCOOTER', 'HFXESCOOTERS'],
+        'Taxi': ['UBERTRIP', 'UBER   TRIP', 'UBER* TRIP', 'LYFT', 'TAXI', 'REVEL', 'BIRD', 'MOVE SCOOTER', 'HFXESCOOTERS'],
         'Gas': ['PETRO', 'IRVING', 'SHELL', 'ESSO', 'MOBIL', 'CIRCLE K', 'ULTRAMAR',
                'CDN TIRE GASBAR', 'FAST FUEL'],
 
@@ -415,7 +417,8 @@ def suggest_category(description):
                     'MIMESTREAM', 'FLEXIBITS', 'FANTASTICAL', 'TOUCHNOTE', 'BIKEMAP',
                     'PAYPAL *MYNOISE', 'OTTER.AI', 'COURSRA', 'SIMPLETAX', 'BITWARDEN',
                     'RUNPOD.IO', 'VAGON INC', 'DRI*NVIDIA', 'TWITCH', 'SMIGHT-TIP',
-                    'ITCH.IO', 'VPN*', 'NINTENDO', 'GODADDY'],
+                    'ITCH.IO', 'VPN*', 'NINTENDO', 'GODADDY',
+                    'UBERONE', 'UBERPASS', 'UBERDIRECTCA'],
         'Amazon': ['AMZN', 'AMAZON'],
         'Shipping': ['UPS'],
 
@@ -977,6 +980,147 @@ def action_refine_budgets(date_after='2025-03-01'):
         print(f"Error connecting to Firefly III API: {e}")
         exit(1)
 
+def _get_budget_for_category(category_name):
+    """Determine the correct budget for a given category name.
+
+    Returns:
+        Budget name string, or None if no budget should be assigned.
+    """
+    cat_lower = (category_name or '').lower()
+    if cat_lower == '(uncategorized)':
+        return None
+    if 'vix-events' in cat_lower:
+        return "Vix-Events"
+    if 'taweel' in cat_lower:
+        return "Taweel"
+    if any(t in cat_lower for t in ['trip', 'travel']):
+        return "Trips"
+    return "Spending"
+
+
+def action_recategorize(category_name, auto_confirm=False):
+    """Re-run suggest_category() on all transactions in a given category and reclassify mismatches.
+
+    Fetches all transactions with the specified category, runs each description through
+    suggest_category(), shows a summary of proposed changes grouped by new category,
+    prompts for confirmation, then updates both category and budget via API.
+
+    Args:
+        category_name: The category to audit (e.g. "Taxi")
+        auto_confirm: If True, skip confirmation prompt
+    """
+    query_string = f"category_is:{category_name}"
+    print(f"Fetching all '{category_name}' transactions...")
+
+    transactions = _fetch_transactions(query_string, limit=500, paginate=True)
+
+    if not transactions:
+        print(f"No transactions found with category '{category_name}'.")
+        return
+
+    print(f"\nFound {len(transactions)} transactions in '{category_name}'\n")
+
+    # Run suggest_category on each and find mismatches
+    matches = []
+    mismatches = []
+
+    for tx in transactions:
+        description = tx.get('description', '')
+        suggested = suggest_category(description)
+        tx['suggested_category'] = suggested
+
+        if suggested.lower() == category_name.lower():
+            matches.append(tx)
+        else:
+            mismatches.append(tx)
+
+    print(f"  Correctly categorized: {len(matches)}")
+    print(f"  Need reclassification: {len(mismatches)}")
+
+    if not mismatches:
+        print(f"\nAll '{category_name}' transactions are correctly categorized. GG EZ.")
+        return
+
+    # Group mismatches by new suggested category
+    from collections import defaultdict
+    by_new_category = defaultdict(list)
+    for tx in mismatches:
+        by_new_category[tx['suggested_category']].append(tx)
+
+    print(f"\n{'=' * 70}")
+    print(f"PROPOSED RECLASSIFICATIONS")
+    print(f"{'=' * 70}")
+
+    for new_cat, txs in sorted(by_new_category.items(), key=lambda x: -len(x[1])):
+        budget = _get_budget_for_category(new_cat)
+        budget_display = f" (budget: {budget})" if budget else ""
+        print(f"\n  {category_name} → {new_cat}{budget_display}: {len(txs)} transactions")
+        # Show first 5 examples
+        for tx in txs[:5]:
+            amount = float(tx.get('amount', 0))
+            desc = tx.get('description', '')[:55]
+            print(f"    ${amount:>9.2f}  {desc}")
+        if len(txs) > 5:
+            print(f"    ... and {len(txs) - 5} more")
+
+    print(f"\n{'=' * 70}")
+    print(f"  Total to reclassify: {len(mismatches)}")
+    print(f"{'=' * 70}")
+
+    if not auto_confirm:
+        response = input("\nProceed with reclassification? (yes/no): ")
+        if response.lower() not in ['yes', 'y']:
+            print("Cancelled.")
+            return
+
+    # Apply changes
+    print("\nApplying reclassifications...\n")
+    success_count = 0
+    error_count = 0
+    skip_count = 0
+
+    for tx in mismatches:
+        tx_id = tx.get('transaction_journal_id')
+        new_category = tx['suggested_category']
+        description = tx.get('description', '')
+
+        if new_category == '(Uncategorized)':
+            # Clear category by setting to empty string
+            update_payload = {'category_name': ''}
+        else:
+            update_payload = {'category_name': new_category}
+
+        # Also set budget
+        budget = _get_budget_for_category(new_category)
+        if budget:
+            update_payload['budget_name'] = budget
+
+        url = f"{API_BASE_URL}/transactions/{tx_id}"
+        headers = get_headers()
+
+        try:
+            resp = requests.put(url, headers=headers, json={'transactions': [update_payload]})
+            if resp.status_code in [200, 204]:
+                success_count += 1
+                print(f"  ✓ {description[:45]:45} → {new_category}")
+            else:
+                error_count += 1
+                print(f"  ✗ {description[:45]:45} → Error {resp.status_code}")
+        except requests.exceptions.RequestException as e:
+            error_count += 1
+            print(f"  ✗ {description[:45]:45} → {e}")
+
+        time.sleep(0.1)
+
+    print(f"\n{'=' * 70}")
+    print("RESULTS")
+    print(f"{'=' * 70}")
+    print(f"  ✓ Reclassified: {success_count}")
+    if error_count > 0:
+        print(f"  ✗ Errors:       {error_count}")
+    print(f"{'=' * 70}")
+
+
 def main():
     """Parse arguments and execute the appropriate action"""
     parser = argparse.ArgumentParser(description="Firefly III Transaction Tool")
@@ -1041,6 +1185,19 @@ def main():
     )
 
     # Sub-parser for the "categorize" action
+    # Sub-parser for the "recategorize" action
+    recategorize_parser = subparsers.add_parser("recategorize", help="Re-run suggest_category() on a category and reclassify mismatches.")
+    recategorize_parser.add_argument(
+        "category_name",
+        type=str,
+        help="The category to audit and reclassify (e.g., Taxi)."
+    )
+    recategorize_parser.add_argument(
+        "--yes", "-y",
+        action="store_true",
+        help="Skip confirmation prompt and apply immediately"
+    )
+
     categorize_parser = subparsers.add_parser("categorize", help="Full categorization pipeline: fetch, suggest, confirm, apply.")
     categorize_parser.add_argument(
         "--date",
@@ -1071,6 +1228,8 @@ def main():
         action_assign_budget(date_after=args.date)
     elif args.action == "refine-budgets":
         action_refine_budgets(date_after=args.date)
+    elif args.action == "recategorize":
+        action_recategorize(args.category_name, auto_confirm=args.yes)
     elif args.action == "categorize":
         action_categorize(date_after=args.date, auto_confirm=args.yes)
     # No need for an else here, as `required=True` in `add_subparsers` handles missing/invalid actions.
