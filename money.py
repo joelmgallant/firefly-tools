@@ -1028,6 +1028,20 @@ def main():
         help="Only fetch transactions after this date (YYYY-MM-DD). Default: 2025-03-01"
     )
 
+    # Sub-parser for the "categorize" action
+    categorize_parser = subparsers.add_parser("categorize", help="Full categorization pipeline: fetch, suggest, confirm, apply.")
+    categorize_parser.add_argument(
+        "--date",
+        type=str,
+        default="2025-03-01",
+        help="Only fetch transactions after this date (YYYY-MM-DD). Default: 2025-03-01"
+    )
+    categorize_parser.add_argument(
+        "--yes", "-y",
+        action="store_true",
+        help="Skip confirmation prompt and apply immediately"
+    )
+
     args = parser.parse_args()
 
     # Execute the selected action
@@ -1045,6 +1059,8 @@ def main():
         action_assign_budget(date_after=args.date)
     elif args.action == "refine-budgets":
         action_refine_budgets(date_after=args.date)
+    elif args.action == "categorize":
+        action_categorize(date_after=args.date, auto_confirm=args.yes)
     # No need for an else here, as `required=True` in `add_subparsers` handles missing/invalid actions.
 
 if __name__ == "__main__":
