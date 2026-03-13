@@ -525,7 +525,7 @@ def suggest_category(description):
                       'FINN FOLK', 'LFBAKERY', 'EAST COAST BAKERY', 'ONROUTE', 'HUDSON ST',
                       'DUNKIN', 'MILANO', 'CAVICCHI', 'FOG COMPANY', 'LANE FARMS',
                       'BEIRUT WAY', 'TST-', 'TST*', 'SUDA TABLE', 'SEBASTIANS NEWS',
-                      'MTA*NYCT', 'AMC ONLINE', 'BOWL', 'CHESS PIECE', 'SNOOTY FOX',
+                      'AMC ONLINE', 'BOWL', 'CHESS PIECE', 'SNOOTY FOX',
                       'BROWN HOUND', 'BREAD N WINE', 'PARTYBOY', 'OWLS HOLLOW', 'DA ZERO',
                       'BROADWAY', 'PRE ROLL WORLD', 'STILLWELL BREWING',
                       'AWASH', 'CHINATOWN DELI', 'DILLY DALLY', 'SIMS STEAKHOUSE',
