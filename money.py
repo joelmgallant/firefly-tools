@@ -445,9 +445,9 @@ def suggest_category(description):
     """Suggest a category based on transaction description patterns"""
     desc_upper = description.upper()
 
-    # Skip reconciliation adjustment transactions
+    # Tag reconciliation adjustment transactions with their own category
     if 'RECONCILIATION ADJUSTMENT' in desc_upper:
-        return '(Uncategorized)'
+        return 'Reconciliation'
 
     # Mapping of keywords to categories
     # Order matters - more specific patterns should come before generic ones
