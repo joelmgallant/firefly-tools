@@ -40,8 +40,8 @@ from dotenv import load_dotenv
 from pathlib import Path
 
 # Load environment variables from .env file
-env_path = Path(__file__).parent / '.env'
-load_dotenv(dotenv_path=env_path)
+env_dir = Path(__file__).parent
+load_dotenv(dotenv_path=env_dir / '.env')
 
 # Firefly III API connection settings
 API_BASE_URL = os.getenv('FIREFLY_API_BASE_URL')
@@ -52,6 +52,25 @@ if not API_BASE_URL or not API_TOKEN:
     print("Error: Missing required environment variables.")
     print("Make sure you've created a .env file based on .env.example")
     exit(1)
+
+# Try primary URL; fall back to .env.localhost if unreachable
+def _check_api_connectivity(url):
+    try:
+        requests.get(f"{url}/about", headers={"accept": "application/vnd.api+json"}, timeout=3)
+        return True
+    except requests.exceptions.RequestException:
+        return False
+
+if not _check_api_connectivity(API_BASE_URL):
+    fallback_env = env_dir / '.env.localhost'
+    if fallback_env.exists():
+        from dotenv import dotenv_values
+        fallback = dotenv_values(fallback_env)
+        fallback_url = fallback.get('FIREFLY_API_BASE_URL')
+        if fallback_url and _check_api_connectivity(fallback_url):
+            print(f"Primary API unreachable, using fallback: {fallback_url}")
+            API_BASE_URL = fallback_url
+            API_TOKEN = fallback.get('FIREFLY_API_TOKEN', API_TOKEN)
 
 def get_headers():
     """Return headers for API requests"""
@@ -426,6 +445,10 @@ def suggest_category(description):
     """Suggest a category based on transaction description patterns"""
     desc_upper = description.upper()
 
+    # Skip reconciliation adjustment transactions
+    if 'RECONCILIATION ADJUSTMENT' in desc_upper:
+        return '(Uncategorized)'
+
     # Mapping of keywords to categories
     # Order matters - more specific patterns should come before generic ones
     category_patterns = {
@@ -535,7 +558,7 @@ def suggest_category(description):
                   'FOUR POINTS BY SHERATO', 'ESME MIAMI'],
         'Transportation': ['STRAIT CROSSING BRIDGE', 'HALIFAX HARBOUR BRIDGE', 'FREENOW',
                           'PREMIER CAR SERVICE', 'MASABI', 'UNITED      0', 'UNITED AIRLINES',
-                          'MTA*NYCT PAYGO', 'STM', 'A30 EXPRESS'],
+                          'MTA*NYCT PAYGO', 'STM ', 'A30 EXPRESS'],
         'Travel Booking': ['EXPEDIA', 'FLIGHTCONNECTIONS'],
         'Travel': ['AIR CAN', 'AIRCANADA', 'FORA TRAVEL', 'GETNOMAD', 'VIRGIN VOYAGES',
                   'VIRGIN CRUISE', 'WESTJET', 'DELTA AIR'],
